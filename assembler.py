@@ -160,9 +160,9 @@ def parseAsm(asmFile, binFile):
                 # assumes hex, otherwise decimal.
                 litData = int(val,0)
 
-        elif comm == "STN":
+        elif comm == "FNC":
             data = 0x9001
-        elif comm == "STP":
+        elif comm == "FNR":
             data = 0x9000
 
         if parsed_com[-1] == "NOJ":
