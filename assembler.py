@@ -2,6 +2,134 @@ import struct
 import sys
 import getopt
 
+class programBase:
+    FunctionList = None
+    __userProg = False
+    __curFunction = None
+    __rootFunction = None
+
+
+    def __init__(self, userProg):
+        self.FunctionList = list()
+        self.FunctionList.clear()
+        self.__userProg = userProg
+
+        self.__rootFunction = functionBase("root")
+        self.__curFunction = self.__rootFunction
+        self.FunctionList.append(self.__rootFunction)
+
+    def processLine(self, line):
+        breakdown = line.upper().split(':')
+        if breakdown[0][0] == '!':
+            self.__addFunction(line)
+        elif breakdown[0] == "FNR":
+            self.__closeFunction()
+        elif breakdown[0][1] == '@':
+            self.__addVariable(breakdown[0][2:], breakdown[1], True)
+        elif breakdown[0][0] == '@':
+            self.__addVariable(breakdown[0][1:], breakdown[1], False)
+        elif breakdown[0][0] == '(':
+            self.__addLabel(breakdown[0][1:-1])
+
+    def __addFunction(self,funcName):
+        self.__curFunction = functionBase(funcName)
+
+    def __closeFunction(self):
+        self.__curFunction = self.__rootFunction
+
+    def __addVariable(self, name, value, globalVariable):
+        if globalVariable:
+            self.__rootFunction.addVariable(name, value)
+        else:
+            self.__curFunction.addVariable(name, value)
+
+    def __getVariable(self, name):
+        pass
+
+    def __addInstruction(self, instruction):
+        self.__curFunction.addInstruction(instruction)
+
+    def __addLabel(self, name):
+        self.__curFunction.addLabel(name)
+
+
+class functionBase:
+    functionAddressBase = 0x0000
+    labelList = list()
+    variableList = list()
+    instructionList = list()
+    functionName = ""
+    bytecodeList = None
+    SINGLE_INPUT_INSTRUCTION = ("INC", "UINC", "SINC", "DEC", "UDEC", "SDEK" ) # TODO: Fill out full single input list
+    DUAL_INPUT_INSTRUCTION = ("ADD", "UADD", "SADD", "SUB", "USUB", "SSUB")    # TODO: Fill out full dual input list
+    REGISTER_LIST = ("GP1", "GP2", "GP3", "GP4", "GP5", "GP6", "GP7", "GP8")   # TODO: Fill out full register list
+
+    def __init__(self, funName):
+        self.functionAddressBase = 0x0000
+        self.labelList = list()
+        self.labelList.clear()
+        self.variableList = list()
+        self.variableList.clear()
+        self.instructionList = list()
+        self.instructionList.clear()
+        self.functionName = funName
+        self.bytecodeList = bytearray()
+
+    def addVariable(self, name, value):
+        varIndex = -1
+        # Add a variable to the list, if variable already exists then return -1
+        if self.getVariableIndex(name) == -1:
+            varIndex = len(self.variableList) + 1
+            self.variableList.append((varIndex, name, value))
+        return varIndex
+
+    def getVariableIndex(self, name):
+        retVal = -1
+        for var in self.variableList:
+            if var[1] == name:
+                retVal = var[0]
+        return retVal
+
+    def addInstruction(self, instruction):
+
+        ins = instruction.upper().split(':')
+        insLen = 0
+
+        if ins[0] in self.SINGLE_INPUT_INSTRUCTION:
+            # analyze for 1 input
+            pass
+        elif ins[0] in self.DUAL_INPUT_INSTRUCTION:
+            # analyze for 2 input
+            pass
+        elif ins[0] == "SET":
+            # analyze for SET instruction
+            if ins[1][1] == "@":
+                # Local variable
+                lvIndex = self.getVariableIndex(ins[1])
+                if lvIndex == 1:
+                    insLen += 2
+                    # inc stack
+                    # copy alu out to mem address
+                else:
+                    insLen += 3
+                    # set gp8 to literal
+                    # add gp8 to stack var
+                    # copy alu out to mem address
+
+            elif ins[1] in self.REGISTER_LIST:
+                # Register
+                insLen += 1
+
+
+
+        self.instructionList.append(instruction)
+
+    def addLabel(self, name):
+        # Add a label at the current instruction index
+        insIndex = len(self.instructionList)
+
+        # Add the label name with the instruction index
+        self.labelList.append((name, insIndex))
 
 def main(argv):
     inputFile = ''
@@ -9,11 +137,19 @@ def main(argv):
     ifile = None
     bfile = None
     userApp = True
+    baseOffset = 0x0000
 
-    helpMessage = "assemler.py -i <assemblyFileName> -b <binaryFileName> -o"
+    helpMessage = """
+    assemler.py -i <assemblyFileName> [-b <binaryFileName> -s -o <offset>]
+    
+    -i / --asmfile : Input assembly file to be parsed.
+    -b / --binfile : Binary output file to be written. (optional)
+    -s             : User/OS program, if set then program will be compiled as a system/os program, otherwise a user program.
+    -o / --offset  : Address offset to place the start of the program, used to calculate jumps.
+    """
 
     try:
-        options, args = getopt.getopt(argv, "hi:b:o", ["asmfile=", "binfile="])
+        options, args = getopt.getopt(argv, "hi:b:o:u", ["asmfile=", "binfile=", "offset="])
     except getopt.GetoptError:
         print(helpMessage)
         sys.exit(2)
@@ -25,7 +161,9 @@ def main(argv):
             inputFile = arg
         elif opt in ("-b", "--binfile"):
             binaryFile = arg
-        elif opt in '-o':
+        elif opt in ("-o", "--offset"):
+            baseOffset = int(arg, 0)
+        elif opt in '-u':
             userApp = False
 
     if inputFile == '':
@@ -34,9 +172,9 @@ def main(argv):
     else:
         if binaryFile == '':
             if '.' not in inputFile:
-                binaryFile = ("%s.dat" % inputFile)
+                binaryFile = ("%s.bco" % inputFile)
             else:
-                binaryFile = ("%s.dat" % inputFile.partition('.')[0])
+                binaryFile = ("%s.bco" % inputFile.partition('.')[0])
 
     try:
         ifile = open(inputFile)
@@ -47,7 +185,11 @@ def main(argv):
         sys.exit(2)
 
     print("input and output opened, about to parse assembly.")
-    parseAsm(ifile, bfile)
+    parsed_asm = parseAsm(ifile, userApp)
+
+    print("assembly parsed, now turning into bytecode.")
+
+    compileAsm(parsed_asm, bfile, userApp, baseOffset)
     print("Parser finished, closing up.")
 
     ifile.close()
@@ -55,14 +197,9 @@ def main(argv):
     bfile.close()
 
 
-def parseAsm(asmFile, binFile):
-    nextVariable = 1        # Index of variable from Stack, starts at 1 (stack 0 is end of var list)
-    progStrings = []        # List of program strings
-    labelList = {}          # List of labels for jump instructions
-    functionList = {0:{}}   # List of function variables
-    curFunc = 0             # Current function index
+def parseAsm(asmFile, userApp):
 
-    SKIP_FOR_SET = "SKIPFORSET"
+    parsed = programBase(userApp)
 
     # Preprocess the lines in the assembly file to clean things up.
     for line in asmFile:
@@ -70,19 +207,6 @@ def parseAsm(asmFile, binFile):
         if line[0] == '#':
             # Comment line, go to next loop
             continue
-
-        if line[0] == '@':
-            # Variable (stack) value
-
-            # extract the variable name (include the @), strip off spaces.
-            vname = line.partition('=')[0].strip()
-
-            # check to see if the name exists in the current function list
-            if vname not in functionList[curFunc].keys():
-                # Name does not exist, so add it to the list
-                functionList[curFunc][vname] = (nextVariable, line.partition('=')[2].strip())
-                nextVariable += 1
-            line = line.partition('@')[0] + '@' + functionList[curFunc][vname]
 
         if '#' in line:
             # Comment exists within the line
@@ -94,37 +218,15 @@ def parseAsm(asmFile, binFile):
         if len(line) == 0:
             continue
 
-        if line[0] == '(' and line[-1] == ')':
-            # Labels aren't add to the line, but their location is recorded, however
-            # the location ends up being the next instruction, not the previous.
-            labelList[line.upper()[1:-1]] = len(progStrings)
-        elif len(line) > 0:
-            # labels aren't added to the strings
-            progStrings.append(line)
-            # If it is a "set" operation it has two lines
-            if line.upper()[0:3] == "SET":
-                progStrings.append(SKIP_FOR_SET)
+        parsed.processLine(line)
 
-        if line[0:3] == "FNC":
-            curFunc += 1
-            nextVariable = 0
+    return parsed
 
-    # Now that it's been pre-processed, now we start putting it all together.
-    for line in progStrings:
 
-        hasLitValue = False
-        data = 0x0000
-        litData = 0x0000
 
-        if line == SKIP_FOR_SET:
-            # Skip, just used for aligning labels to consider set operations which
-            # take two 'words' (two 16bit values)
-            continue
+def compileAsm(parsed, binFile, userApp, baseOffset):
 
-        parsed_com = line.upper().split(':')
-
-        comm = parsed_com[0]
-
+    for func = parsed.functionList
         if   comm == "COPY":
             data = 0x0000 | parse_source(parsed_com[1]) | parse_dest(parsed_com[2])
         elif comm == "SET0":
