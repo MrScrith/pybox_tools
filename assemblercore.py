@@ -31,7 +31,7 @@ class programBase:
             self.__addLabel(breakdown[0][1:-1])
 
     def __addFunction(self,funcName):
-        self.__curFunction = functionBase(funcName)
+        self.__curFunction = functionBase(funcName, self.__rootFunction)
 
     def __closeFunction(self):
         self.__curFunction = self.__rootFunction
@@ -60,9 +60,13 @@ class functionBase:
     functionName = ""
     bytecodeList = None
     globalReference = None
-    SINGLE_INPUT_INSTRUCTION = ("SET", "INC", "UINC", "SINC", "DEC", "UDEC", "SDEK" ) # TODO: Fill out full single input list
-    DUAL_INPUT_INSTRUCTION = ("ADD", "UADD", "SADD", "SUB", "USUB", "SSUB")    # TODO: Fill out full dual input list
-    REGISTER_LIST = ("GP1", "GP2", "GP3", "GP4", "GP5", "GP6", "GP7", "GP8")   # TODO: Fill out full register list
+    NO_INPUT_INSTRUCTION = ("SETZ", "SET1", "SETN" )
+    SINGLE_INPUT_INSTRUCTION = ("SET", "INC", "UINC", "SINC", "SDEC", "UDEC", "DEC", "NOT", "NEG",
+                                "BSL", "BSR", "SETL")
+    DUAL_INPUT_INSTRUCTION = ("ADD", "UADD", "SADD", "SUB", "USUB", "SSUB", "MUL", "SMUL", "UMUL",
+                              "DEV", "SDIV", "UDIV", "AND", "OR", "CPY" )
+    REGISTER_LIST = ("RJ0", "RJP", "RMA", "RMD", "GP0", "GP1", "GP2", "GP3", "GP4", "GP5", "GP6",
+                     "GP7", "RPC", "STK", "ALU", "FLG")
 
     def __init__(self, funName, globalRef):
         self.functionAddressBase = 0x0000
@@ -117,7 +121,7 @@ class functionBase:
             elif ins[1] in self.REGISTER_LIST:
                 insLen += 1
 
-            if ins[0] == "SET":
+            if ins[0] in ("SET", "SETL"):
                 # Add one more for the literal value to be stored at.
                 insLen += 1
 
@@ -227,9 +231,14 @@ def compileAsm(parsed, binFile, osRoot, baseOffset):
 
     globalFunction = functionList[0]
 
+    globalLabelList = globalFunction.labelList
+
     processVariables(globalFunction.VariableList, osRoot)
 
     for func in parsed.functionList:
+
+        LabelList = func.labelList
+
         for instr in func.instructionList:
             parsed_com = instr.upper().split(':')
 
@@ -291,7 +300,12 @@ def compileAsm(parsed, binFile, osRoot, baseOffset):
                     pass
                 elif val[0] == '(':
                     # value is label
-                    litData = labelList[val[1:-1]]
+                    lname = val[1:-1]
+
+                    if lname in LabelList:
+                        litData = LabelList[lname]
+                    elif lname in globalLabelList:
+                        litData = LabelList[lname]
                 else:
                     # the int function is smart enough to parse both hex and decimal, if it sees a '0x' prefix it
                     # assumes hex, otherwise decimal.
@@ -346,29 +360,29 @@ def parse_loc_a(location):
 
     rval = 0x0000
 
-    if location == "RJP":
+    if location == "RJO":
         pass
-    elif location == "RJO":
+    elif location == "RJP":
         rval = 0x0010
     elif location == "RMA":
         rval = 0x0020
     elif location == "RMD":
         rval = 0x0030
-    elif location == "GP1":
+    elif location == "GP0":
         rval = 0x0040
-    elif location == "GP2":
+    elif location == "GP1":
         rval = 0x0050
-    elif location == "GP3":
+    elif location == "GP2":
         rval = 0x0060
-    elif location == "GP4":
+    elif location == "GP3":
         rval = 0x0070
-    elif location == "GP5":
+    elif location == "GP4":
         rval = 0x0080
-    elif location == "GP6":
+    elif location == "GP5":
         rval = 0x0090
-    elif location == "GP7":
+    elif location == "GP6":
         rval = 0x00A0
-    elif location == "GP8":
+    elif location == "GP7":
         rval = 0x00B0
     elif location == "RPC":
         rval = 0x00C0
@@ -376,7 +390,7 @@ def parse_loc_a(location):
         rval = 0x00D0
     elif location == "ALU":
         rval = 0x00E0
-    elif location == "RFL":
+    elif location == "FLG":
         rval = 0x00F0
 
     return rval
@@ -385,28 +399,36 @@ def parse_loc_b(location):
 
     rval = 0x0000
 
-    if location == "RJP":
+    if location == "RJO":
         pass
-    elif location == "RJO":
+    elif location == "RJP":
         rval = 0x0001
     elif location == "RMA":
         rval = 0x0002
     elif location == "RMD":
         rval = 0x0003
-    elif location == "GP1":
+    elif location == "GP0":
         rval = 0x0004
-    elif location == "GP2":
+    elif location == "GP1":
         rval = 0x0005
-    elif location == "GP3":
+    elif location == "GP2":
         rval = 0x0006
-    elif location == "GP4":
+    elif location == "GP3":
         rval = 0x0007
-    elif location == "GP5":
+    elif location == "GP4":
         rval = 0x0008
-    elif location == "GP6":
+    elif location == "GP5":
         rval = 0x0009
-    elif location == "GP7":
+    elif location == "GP6":
         rval = 0x000A
-    elif location == "GP8":
+    elif location == "GP7":
         rval = 0x000B
+    elif location == "RPC":
+        raise Exception.add_note("RPC is a Read Only Register and is invalid as a destination (B) value.")
+    elif location == "STK":
+        rval = 0x000D
+    elif location == "ALU":
+        raise Exception.add_note("ALU is a Read Only Register and is invalid as a destination (B) value.")
+    elif location == "FLG":
+        raise Exception.add_note("FLG is a Read Only Register and is invalid as a destination (B) value.")
     return rval
